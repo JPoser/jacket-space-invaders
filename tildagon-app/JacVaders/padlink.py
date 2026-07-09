@@ -12,9 +12,12 @@ PacketParser from the app tick. No asyncio, no pairing, no connection
 state; the bridge can reboot freely and packets simply resume.
 
 Channel note: ESP-NOW frames only arrive when both radios sit on the
-same WiFi channel. An idle STA sits on PADLINK_CHANNEL (1, matching
-the bridge default); if the badge ever joins an AP the radio moves to
-the AP's channel, and the bridge must be rebuilt to match.
+same WiFi channel. If the badge OS has joined an access point, the
+radio follows the AP's channel and the bridge (pinned to channel 1)
+becomes inaudible — so with force_channel (the default) start()
+disconnects from any AP and pins the radio. The games are offline;
+they'd rather hear the controller than the internet. The status string
+shows the live channel ("ok c1") so a mismatch is visible on the LCD.
 
 Optional transport (espnow module) with the usual guarded import: in
 the simulator or under CPython the module still loads and start()
@@ -40,8 +43,9 @@ class EspNowPad:
     on_press(button_byte) — same contract as ble.BleController.
     ``status``: off | none | ok | err."""
 
-    def __init__(self, on_press, channel=1):
+    def __init__(self, on_press, channel=1, force_channel=True):
         self.channel = channel
+        self.force_channel = force_channel
         self.status = "off"
         self._parser = PacketParser(on_press)
         self._e = None
@@ -57,14 +61,28 @@ class EspNowPad:
         try:
             sta = network.WLAN(network.STA_IF)
             sta.active(True)
-            if not sta.isconnected():
+            if self.force_channel:
+                try:
+                    if sta.isconnected():
+                        print("padlink: dropping AP to pin channel {}".format(
+                            self.channel))
+                        sta.disconnect()
+                except Exception:
+                    pass
                 try:
                     sta.config(channel=self.channel)
                 except (OSError, ValueError):
-                    pass  # some ports refuse; the idle default is 1 anyway
+                    pass  # some ports refuse mid-disconnect; checked below
             self._e = espnow.ESPNow()
             self._e.active(True)
-            self.status = "ok"
+            try:
+                live = sta.config("channel")
+            except Exception:
+                live = self.channel
+            self.status = "ok c{}".format(live)
+            if live != self.channel:
+                # Audible-mismatch warning: the bridge won't be heard.
+                self.status = "ch{}!={}".format(live, self.channel)
             return True
         except Exception as e:
             print("padlink start failed: {}".format(e))

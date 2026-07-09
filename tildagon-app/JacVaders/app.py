@@ -112,7 +112,13 @@ class JacVadersApp(app.App):
         self.padlink = None
         if self.game is not None and config.PADLINK_ENABLED:
             self.padlink = padlink.EspNowPad(
-                self._on_ble_press, channel=config.PADLINK_CHANNEL)
+                self._on_ble_press, channel=config.PADLINK_CHANNEL,
+                force_channel=config.PADLINK_FORCE_CHANNEL)
+
+        # Input flash: the LCD shows the last remote input for a moment,
+        # so "is the controller getting through?" has a visible answer.
+        self._input_flash = 0.0
+        self._input_label = ""
 
         self.play_mode = False  # CONFIRM toggles D-pad control vs knobs
         self.manual_brightness = config.BRIGHTNESS
@@ -190,13 +196,26 @@ class JacVadersApp(app.App):
                 self.padlink.start()
         if self.padlink is not None:
             self.padlink.poll()
+        if self._input_flash > 0:
+            self._input_flash -= delta
         if self.game is not None:
             self.game.tick(delta)
 
+    _BLE_LABELS = {0x31: "restart", 0x35: "fire", 0x36: "fire",
+                   0x37: "left", 0x38: "right", 0x32: "fire",
+                   0x33: "fire", 0x34: "fire"}
+
+    def _note_input(self, label):
+        self._input_flash = 0.4
+        self._input_label = label
+
     def _on_ble_press(self, button):
-        """A Control Pad press arrived from the phone: left/right move,
-        up/down and buttons 2-4 fire, button 1 restarts. Runs on the same
-        event loop as the game tick, so no locking needed."""
+        """A Control Pad press arrived from the phone or the ESP-NOW
+        bridge: left/right move, up/down and buttons 2-4 fire, button 1
+        restarts. Runs on the same event loop as the game tick, so no
+        locking needed."""
+        self._note_input(self._BLE_LABELS.get(
+            button, "btn {}".format(chr(button))))
         if self.game is None:
             return
         d = ble.BUTTON_DIRS.get(button)
@@ -215,6 +234,7 @@ class JacVadersApp(app.App):
         """A button-down arrived from the hardware gamepad (blehost.py):
         left/right move the cannon, the face buttons (and D-pad up/down)
         fire, start restarts."""
+        self._note_input(name)
         if self.game is None:
             return
         if name == "left":
@@ -286,6 +306,13 @@ class JacVadersApp(app.App):
             ctx.move_to(0, -10).text(self.led_init_error[:28] or "no strip")
             ctx.restore()
             return
+
+        # Remote input flash: bright, hard to miss, gone in 0.4s.
+        if self._input_flash > 0:
+            ctx.rgb(*INVADER_GREEN)
+            ctx.font_size = 12
+            ctx.move_to(0, -44).text("» {} «".format(self._input_label))
+            ctx.rgb(1, 1, 1)
 
         ctx.font_size = 20
         ctx.move_to(0, -25).text("{:05d}".format(self.game.score))

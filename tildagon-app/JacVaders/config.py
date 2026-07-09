@@ -63,11 +63,11 @@ BLE_ENABLED = True
 BLE_NAME = "JacVaders"
 
 # BLE hardware gamepad (blehost.py): the badge scans for and connects TO
-# a BLE HID controller — built for the 8BitDo Micro / Zero 2 in keyboard
-# mode (hold X + power to switch it on in that mode). D-pad left/right
-# move, A/B/X/Y (or D-pad up/down) fire, start restarts. Runs alongside
-# the phone path; both can be on.
-GAMEPAD_ENABLED = True
+# a BLE HID controller (e.g. a Steam Controller with the BLE firmware).
+# Off by default: scanning costs radio time shared with ESP-NOW and the
+# scheduler, and the pad path is the ESP-NOW bridge below. Turn on only
+# when actually using a direct BLE HID controller.
+GAMEPAD_ENABLED = False
 GAMEPAD_NAME_PREFIX = "8bitdo"  # scan match, besides the HID service UUID
 GAMEPAD_KEYMAP = None   # None = blehost.KEY_NAMES (8BitDo keyboard-mode)
 GAMEPAD_DEBUG = False   # print every HID report — for mapping a new pad
@@ -78,6 +78,12 @@ GAMEPAD_DEBUG = False   # print every HID report — for mapping a new pad
 # firmware (its default is 1 — see the channel note in padlink.py).
 PADLINK_ENABLED = True
 PADLINK_CHANNEL = 1
+
+# Pin the radio to PADLINK_CHANNEL, dropping any AP the badge OS joined
+# (ESP-NOW is channel-locked; a badge sitting on the home AP's channel
+# can't hear the bridge). The games are offline, so this costs nothing.
+# Set False if some other app needs WiFi while JacVaders runs.
+PADLINK_FORCE_CHANNEL = True
 
 # --- Game tuning ----------------------------------------------------------------
 

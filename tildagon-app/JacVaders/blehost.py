@@ -39,8 +39,17 @@ if bluetooth is not None:
     _BOOT_KB_INPUT = bluetooth.UUID(0x2A22)     # Boot Keyboard Input Report
 
 _SCAN_MS = 15000
+_SCAN_IDLE_S = 3      # breather between empty scans — don't hog the radio
 _CONNECT_MS = 10000
 _NOTIFY_PROP = 0x10  # GATT characteristic property bit
+
+# ~9% scan duty cycle. A gamepad in pairing mode advertises several
+# times a second, so a 30ms window every 320ms still catches it within
+# a scan round — and the radio stays free for ESP-NOW and the display's
+# share of the schedule. (The original 30/30 continuous scan starved
+# the whole badge.)
+_SCAN_INTERVAL_US = 320000
+_SCAN_WINDOW_US = 30000
 
 # 8BitDo keyboard-mode convention (Zero 2 / Micro): the pad types the
 # letters C..O. Keys are HID usage IDs ('a' = 0x04).
@@ -145,8 +154,9 @@ class HidHostGamepad:
         return name.lower().startswith(self.name_prefix)
 
     async def _scan(self):
-        async with aioble.scan(_SCAN_MS, interval_us=30000,
-                               window_us=30000, active=True) as scanner:
+        async with aioble.scan(_SCAN_MS, interval_us=_SCAN_INTERVAL_US,
+                               window_us=_SCAN_WINDOW_US,
+                               active=True) as scanner:
             async for result in scanner:
                 if self._wanted(result):
                     return result.device
@@ -158,6 +168,7 @@ class HidHostGamepad:
                 self.status = "scan"
                 device = await self._scan()
                 if device is None:
+                    await asyncio.sleep(_SCAN_IDLE_S)
                     continue
                 self.status = "conn"
                 connection = await device.connect(timeout_ms=_CONNECT_MS)
