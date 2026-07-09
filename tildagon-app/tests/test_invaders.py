@@ -26,6 +26,7 @@ def load(name):
 
 invaders = load("invaders")
 ble = load("ble")
+blehost = load("blehost")
 
 
 class FakeStrip:
@@ -357,6 +358,49 @@ def test_parser_reassembles_and_checks():
     bad[4] ^= 0xFF
     p.feed(bytes(bad))
     assert seen == [0x38]
+
+
+# -- BLE HID host (hardware gamepad) -----------------------------------------------
+
+def kb_report(*usages):
+    """A boot-format keyboard report holding the given HID usage IDs."""
+    keys = list(usages)[:6] + [0] * (6 - len(usages))
+    return bytes([0, 0] + keys)
+
+
+def test_keyboard_parser_emits_press_once():
+    seen = []
+    p = blehost.KeyboardReportParser(seen.append)
+    p.feed(kb_report(0x08))          # E (left) pressed
+    p.feed(kb_report(0x08))          # still held — no repeat
+    p.feed(kb_report())              # released
+    p.feed(kb_report(0x08))          # pressed again
+    assert seen == [0x08, 0x08]
+
+
+def test_keyboard_parser_ignores_rollover_and_runts():
+    seen = []
+    p = blehost.KeyboardReportParser(seen.append)
+    p.feed(bytes([0, 0, 1, 1, 1, 1, 1, 1]))  # rollover error
+    p.feed(b"\x00")                          # runt
+    assert seen == []
+
+
+def test_hid_host_routes_reports_to_buttons():
+    seen = []
+    pad = blehost.HidHostGamepad(seen.append)
+    pad._handle_report(kb_report(0x08))          # E = left
+    pad._handle_report(kb_report(0x08, 0x0A))    # + G = a (fire)
+    pad._handle_report(kb_report())
+    pad._handle_report(kb_report(0x3A))          # unmapped — no crash
+    assert seen == ["left", "a"]
+
+
+def test_hid_host_survives_bad_handler():
+    def boom(name):
+        raise RuntimeError("handler bug")
+    pad = blehost.HidHostGamepad(boom)
+    pad._handle_report(kb_report(0x06))  # must not raise
 
 
 if __name__ == "__main__":

@@ -55,12 +55,22 @@ GAME_SPEED_MAX = 3.0
 # (badge D-pad or BLE), so the jacket always returns to attract mode.
 PLAYER_IDLE_SECONDS = 10.0
 
-# BLE gamepad (ble.py): the badge advertises the Nordic UART Service under
-# BLE_NAME; Adafruit Bluefruit Connect's Controller → Control Pad plays —
-# left/right move, up/down (or buttons 2-4) fire, button 1 restarts.
-# Safe to leave on where the radio is missing (simulator).
+# BLE phone controller (ble.py): the badge advertises the Nordic UART
+# Service under BLE_NAME; Adafruit Bluefruit Connect's Controller →
+# Control Pad plays — left/right move, up/down (or buttons 2-4) fire,
+# button 1 restarts. Safe to leave on where the radio is missing.
 BLE_ENABLED = True
 BLE_NAME = "JacVaders"
+
+# BLE hardware gamepad (blehost.py): the badge scans for and connects TO
+# a BLE HID controller — built for the 8BitDo Micro / Zero 2 in keyboard
+# mode (hold X + power to switch it on in that mode). D-pad left/right
+# move, A/B/X/Y (or D-pad up/down) fire, start restarts. Runs alongside
+# the phone path; both can be on.
+GAMEPAD_ENABLED = True
+GAMEPAD_NAME_PREFIX = "8bitdo"  # scan match, besides the HID service UUID
+GAMEPAD_KEYMAP = None   # None = blehost.KEY_NAMES (8BitDo keyboard-mode)
+GAMEPAD_DEBUG = False   # print every HID report — for mapping a new pad
 
 # --- Game tuning ----------------------------------------------------------------
 

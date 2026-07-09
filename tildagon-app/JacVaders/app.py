@@ -18,6 +18,7 @@ import app
 from events.input import Buttons, BUTTON_TYPES
 
 from . import ble
+from . import blehost
 from . import config
 from . import invaders
 from .strip import DimmableStrip
@@ -90,12 +91,21 @@ class JacVadersApp(app.App):
             )
             self.game.speed = config.GAME_SPEED
 
-        # BLE gamepad. Constructed here, but the serve task can only be
-        # spawned from inside the running event loop — see _background_update.
+        # BLE. Constructed here, but the serve tasks can only be spawned
+        # from inside the running event loop — see _background_update.
+        # Two independent paths: the phone connects in to us (ble.py) and
+        # we connect out to a hardware pad (blehost.py).
         self.ble = None
+        self.pad = None
         self._ble_started = False
         if self.game is not None and config.BLE_ENABLED:
             self.ble = ble.BleController(config.BLE_NAME, self._on_ble_press)
+        if self.game is not None and config.GAMEPAD_ENABLED:
+            self.pad = blehost.HidHostGamepad(
+                self._on_pad_button,
+                name_prefix=config.GAMEPAD_NAME_PREFIX,
+                keymap=config.GAMEPAD_KEYMAP,
+                debug=config.GAMEPAD_DEBUG)
 
         self.play_mode = False  # CONFIRM toggles D-pad control vs knobs
         self.manual_brightness = config.BRIGHTNESS
@@ -161,11 +171,14 @@ class JacVadersApp(app.App):
         delta = delta / 1000.0
         if delta > config.MAX_FRAME_DELTA:
             delta = config.MAX_FRAME_DELTA
-        # First tick runs inside the event loop, so the BLE serve task can
-        # be spawned from here (it can't from __init__).
-        if self.ble is not None and not self._ble_started:
+        # First tick runs inside the event loop, so the BLE serve tasks can
+        # be spawned from here (they can't from __init__).
+        if not self._ble_started:
             self._ble_started = True
-            self.ble.start()
+            if self.ble is not None:
+                self.ble.start()
+            if self.pad is not None:
+                self.pad.start()
         if self.game is not None:
             self.game.tick(delta)
 
@@ -183,6 +196,23 @@ class JacVadersApp(app.App):
         elif d is not None or button in _BLE_FIRE_BUTTONS:
             self.game.fire()
         elif button == ble.BUTTON_RESTART:
+            self.game.new_game()
+
+    _PAD_FIRE = ("up", "down", "a", "b", "x", "y")
+
+    def _on_pad_button(self, name):
+        """A button-down arrived from the hardware gamepad (blehost.py):
+        left/right move the cannon, the face buttons (and D-pad up/down)
+        fire, start restarts."""
+        if self.game is None:
+            return
+        if name == "left":
+            self.game.steer(-1)
+        elif name == "right":
+            self.game.steer(1)
+        elif name in self._PAD_FIRE:
+            self.game.fire()
+        elif name == "start":
             self.game.new_game()
 
     # -- Button actions -----------------------------------------------------------
@@ -210,6 +240,17 @@ class JacVadersApp(app.App):
         print("game speed {:.2f}x".format(new))
 
     # -- LCD ------------------------------------------------------------------------
+
+    _STATUS_SHORT = {"advertising": "adv", "connected": "ok", "off": "off",
+                     "no BLE": "none"}
+
+    def _short_status(self, controller):
+        """Squeeze a BLE status onto the shared LCD line. blehost's are
+        already short; ble.py's longer ones get abbreviated."""
+        if controller is None:
+            return "off"
+        s = controller.status
+        return self._STATUS_SHORT.get(s, s[:6])
 
     def draw(self, ctx):
         ctx.save()
@@ -254,8 +295,9 @@ class JacVadersApp(app.App):
         control = "PLAY" if self.play_mode else "attract"
         if self.game.player:
             control += "*"
-        ble_state = self.ble.status if self.ble is not None else "ble off"
-        ctx.move_to(0, 60).text("{}  ble: {}".format(control, ble_state))
+        ctx.move_to(0, 60).text("{}  ph {}  pad {}".format(
+            control, self._short_status(self.ble),
+            self._short_status(self.pad)))
         ctx.move_to(0, 74).text("spd {:.2g}x  brt {:.2g}".format(
             self.game.speed, self.manual_brightness))
         if self.last_error:

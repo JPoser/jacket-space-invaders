@@ -47,9 +47,23 @@ back over after 10 seconds of silence (`PLAYER_IDLE_SECONDS`), so the
 jacket always returns to attract mode. Input during the game-over
 marquee starts a fresh game immediately.
 
+## Playing from a hardware gamepad (8BitDo)
+
+The badge also scans for and connects **to** a BLE HID controller
+(`blehost.py`) — built for the **8BitDo Micro / Zero 2 in keyboard
+mode** (hold X + power to switch it on in that mode; it appears as a
+BLE keyboard typing the letters C–O). D-pad left/right move the cannon,
+A/B/X/Y (or D-pad up/down) fire, **start** restarts. Other BLE HID
+keyboard-ish controllers can be mapped by setting `GAMEPAD_DEBUG =
+True`, pressing everything, reading the console, and overriding
+`GAMEPAD_KEYMAP` in `config.py`.
+
+Phone and pad paths run side by side; either (or the badge D-pad) puts
+a human in charge.
+
 BLE uses `aioble`, which is frozen into the Tildagon firmware. Where
-it's missing (the badge simulator) the app just shows "no BLE" and the
-D-pad still works.
+it's missing (the badge simulator) the app just shows "no BLE"/"none"
+and the D-pad still works.
 
 ## Layout
 
@@ -60,6 +74,7 @@ tildagon-app/
                  state machine, renderer (dependency-free; runs
                  standalone under CPython)
     ble.py       NUS peripheral + Bluefruit control-pad packet parser
+    blehost.py   BLE HID host for hardware gamepads (8BitDo keyboard mode)
     app.py       Tildagon app: buttons, LCD, background tick
     strip.py     DimmableStrip (brightness + serpentine remap),
                  trimmed from jacket-client's runner.py
