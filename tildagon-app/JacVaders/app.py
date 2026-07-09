@@ -21,6 +21,7 @@ from . import ble
 from . import blehost
 from . import config
 from . import invaders
+from . import padlink
 from .strip import DimmableStrip
 
 # Optional modules, kept under try/except so the app still loads in the
@@ -106,6 +107,12 @@ class JacVadersApp(app.App):
                 name_prefix=config.GAMEPAD_NAME_PREFIX,
                 keymap=config.GAMEPAD_KEYMAP,
                 debug=config.GAMEPAD_DEBUG)
+        # ESP-NOW bridge (jacket-pad-bridge): the packets are Bluefruit
+        # format, so they route through the same handler as the phone.
+        self.padlink = None
+        if self.game is not None and config.PADLINK_ENABLED:
+            self.padlink = padlink.EspNowPad(
+                self._on_ble_press, channel=config.PADLINK_CHANNEL)
 
         self.play_mode = False  # CONFIRM toggles D-pad control vs knobs
         self.manual_brightness = config.BRIGHTNESS
@@ -179,6 +186,10 @@ class JacVadersApp(app.App):
                 self.ble.start()
             if self.pad is not None:
                 self.pad.start()
+            if self.padlink is not None:
+                self.padlink.start()
+        if self.padlink is not None:
+            self.padlink.poll()
         if self.game is not None:
             self.game.tick(delta)
 
@@ -295,9 +306,10 @@ class JacVadersApp(app.App):
         control = "PLAY" if self.play_mode else "attract"
         if self.game.player:
             control += "*"
-        ctx.move_to(0, 60).text("{}  ph {}  pad {}".format(
+        ctx.move_to(0, 60).text("{}  ph {}  pad {}  np {}".format(
             control, self._short_status(self.ble),
-            self._short_status(self.pad)))
+            self._short_status(self.pad),
+            self._short_status(self.padlink)))
         ctx.move_to(0, 74).text("spd {:.2g}x  brt {:.2g}".format(
             self.game.speed, self.manual_brightness))
         if self.last_error:

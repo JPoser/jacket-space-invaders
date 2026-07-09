@@ -12,6 +12,7 @@ Run:  python3 tildagon-app/tests/test_invaders.py
 
 import importlib.util
 import random
+import sys
 from pathlib import Path
 
 JACVADERS = Path(__file__).resolve().parent.parent / "JacVaders"
@@ -20,6 +21,7 @@ JACVADERS = Path(__file__).resolve().parent.parent / "JacVaders"
 def load(name):
     spec = importlib.util.spec_from_file_location(name, JACVADERS / (name + ".py"))
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod  # so later modules can import earlier ones
     spec.loader.exec_module(mod)
     return mod
 
@@ -27,6 +29,7 @@ def load(name):
 invaders = load("invaders")
 ble = load("ble")
 blehost = load("blehost")
+padlink = load("padlink")
 
 
 class FakeStrip:
@@ -401,6 +404,43 @@ def test_hid_host_survives_bad_handler():
         raise RuntimeError("handler bug")
     pad = blehost.HidHostGamepad(boom)
     pad._handle_report(kb_report(0x06))  # must not raise
+
+
+# -- ESP-NOW pad link -------------------------------------------------------------
+
+class FakeEspNow:
+    """Mimics espnow.ESPNow's any()/recv() drain contract."""
+
+    def __init__(self, messages):
+        self.messages = list(messages)
+
+    def any(self):
+        return bool(self.messages)
+
+    def recv(self, timeout_ms):
+        return (b"\x10\x06\x1c\x82\x77\x8c", self.messages.pop(0))
+
+
+def test_padlink_unavailable_under_cpython():
+    link = padlink.EspNowPad(lambda b: None)
+    assert not link.available
+    assert link.start() is False
+    assert link.status == "none"
+    link.poll()  # no transport — must be a no-op, not a crash
+
+
+def test_padlink_drains_frames_into_parser():
+    seen = []
+    link = padlink.EspNowPad(seen.append)
+    link._e = FakeEspNow([
+        bluefruit_pkt(0x37),           # left pressed
+        bluefruit_pkt(0x37, False),    # released — parser drops it
+        bluefruit_pkt(0x32),           # button 2 (fire) pressed
+        b"junk",                       # radio noise — parser filters
+    ])
+    link.poll()
+    assert seen == [0x37, 0x32]
+    assert not link._e.messages  # everything drained in one poll
 
 
 if __name__ == "__main__":

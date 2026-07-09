@@ -72,6 +72,13 @@ GAMEPAD_NAME_PREFIX = "8bitdo"  # scan match, besides the HID service UUID
 GAMEPAD_KEYMAP = None   # None = blehost.KEY_NAMES (8BitDo keyboard-mode)
 GAMEPAD_DEBUG = False   # print every HID report — for mapping a new pad
 
+# ESP-NOW gamepad bridge (padlink.py): jacket-pad-bridge broadcasts
+# Bluetooth Classic controller events (8BitDo in D mode, DualShock, ...)
+# as Bluefruit packets over ESP-NOW. Channel must match the bridge
+# firmware (its default is 1 — see the channel note in padlink.py).
+PADLINK_ENABLED = True
+PADLINK_CHANNEL = 1
+
 # --- Game tuning ----------------------------------------------------------------
 
 SHOT_SPEED = 12.0     # rows/second, upward
