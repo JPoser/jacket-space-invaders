@@ -49,6 +49,7 @@ class EspNowPad:
         self.status = "off"
         self._parser = PacketParser(on_press)
         self._e = None
+        self._polls = 0  # channel-watchdog cadence counter
 
     @property
     def available(self):
@@ -61,38 +62,69 @@ class EspNowPad:
         try:
             sta = network.WLAN(network.STA_IF)
             sta.active(True)
+            try:
+                # MicroPython's espnow docs: reliable receive needs WiFi
+                # power saving off.
+                sta.config(pm=sta.PM_NONE)
+            except Exception:
+                pass
             if self.force_channel:
-                try:
-                    if sta.isconnected():
-                        print("padlink: dropping AP to pin channel {}".format(
-                            self.channel))
-                        sta.disconnect()
-                except Exception:
-                    pass
-                try:
-                    sta.config(channel=self.channel)
-                except (OSError, ValueError):
-                    pass  # some ports refuse mid-disconnect; checked below
+                self._pin_channel(sta)
             self._e = espnow.ESPNow()
             self._e.active(True)
-            try:
-                live = sta.config("channel")
-            except Exception:
-                live = self.channel
-            self.status = "ok c{}".format(live)
-            if live != self.channel:
-                # Audible-mismatch warning: the bridge won't be heard.
-                self.status = "ch{}!={}".format(live, self.channel)
+            self._update_status(sta)
             return True
         except Exception as e:
             print("padlink start failed: {}".format(e))
             self.status = "err"
             return False
 
+    def _pin_channel(self, sta):
+        """Drop any AP and park the radio on our channel. The badge OS's
+        WiFi manager may (re)join an AP at any time, dragging the radio
+        to the AP's channel and deafening us — so this runs at start()
+        AND from the poll() watchdog, winning the tug-of-war within a
+        couple of seconds of any drift."""
+        try:
+            if sta.isconnected():
+                print("padlink: dropping AP to pin channel {}".format(
+                    self.channel))
+                sta.disconnect()
+        except Exception:
+            pass
+        try:
+            sta.config(channel=self.channel)
+        except (OSError, ValueError):
+            pass  # some ports refuse mid-disconnect; status shows the truth
+
+    def _update_status(self, sta):
+        try:
+            live = sta.config("channel")
+        except Exception:
+            self.status = "ok c?"
+            return
+        if live == self.channel:
+            self.status = "ok c{}".format(live)
+        else:
+            # Audible-mismatch warning: the bridge won't be heard.
+            self.status = "ch{}!={}".format(live, self.channel)
+
     def poll(self):
-        """Drain everything pending. Cheap when idle (one any() check)."""
+        """Drain everything pending. Cheap when idle (one any() check).
+        Every ~50 polls (a couple of seconds at tick rate) the channel
+        watchdog re-pins the radio in case the OS moved it."""
         if self._e is None:
             return
+        self._polls += 1
+        if self.force_channel and self._polls >= 50:
+            self._polls = 0
+            try:
+                sta = network.WLAN(network.STA_IF)
+                if sta.isconnected() or sta.config("channel") != self.channel:
+                    self._pin_channel(sta)
+                self._update_status(sta)
+            except Exception:
+                pass
         try:
             while self._e.any():
                 _, msg = self._e.recv(0)
