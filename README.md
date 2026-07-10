@@ -33,9 +33,24 @@ cannon right now). CONFIRM toggles between the two button modes:
 
 CANCEL minimises in either mode.
 
-## Playing from a phone (BLE)
+## Playing with a real gamepad (the ESP-NOW bridge)
 
-The badge advertises the Nordic UART Service as **JacVaders**. Install
+The default controller path: an 8BitDo Micro (or any Bluepad32-
+supported pad) connects over Bluetooth Classic to
+[jacket-pad-bridge](../jacket-pad-bridge), which forwards button
+events to the badge over ESP-NOW (`padlink.py`). D-pad left/right move
+the cannon, face buttons fire, start restarts; received inputs flash
+on the LCD and the status line shows the link as `np ok c1`.
+
+Radio notes: padlink pins the radio to channel 1 (watchdogged against
+the badge OS's WiFi auto-connect), and NimBLE coexistence starves
+ESP-NOW receive — hence the phone path below defaults off. Pick one.
+
+## Playing from a phone (BLE) — off by default
+
+Set `BLE_ENABLED = True` (and `PADLINK_ENABLED = False`) in
+`config.py`. The badge advertises the Nordic UART Service as
+**JacVaders**. Install
 [Adafruit Bluefruit Connect](https://learn.adafruit.com/bluefruit-le-connect)
 (free, iOS/Android), connect, open **Controller → Control Pad**:
 left/right move the cannon, up/down (or round buttons 2–4) fire, and

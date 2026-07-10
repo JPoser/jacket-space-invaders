@@ -58,8 +58,10 @@ PLAYER_IDLE_SECONDS = 10.0
 # BLE phone controller (ble.py): the badge advertises the Nordic UART
 # Service under BLE_NAME; Adafruit Bluefruit Connect's Controller →
 # Control Pad plays — left/right move, up/down (or buttons 2-4) fire,
-# button 1 restarts. Safe to leave on where the radio is missing.
-BLE_ENABLED = True
+# button 1 restarts. OFF by default: with NimBLE active the S3's
+# coexistence arbiter starves ESP-NOW receive on the idle STA, deafening
+# the gamepad bridge (padlink). Pick one — phone OR bridge.
+BLE_ENABLED = False
 BLE_NAME = "JacVaders"
 
 # BLE hardware gamepad (blehost.py): the badge scans for and connects TO

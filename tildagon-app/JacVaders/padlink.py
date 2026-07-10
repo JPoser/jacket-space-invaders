@@ -43,13 +43,15 @@ class EspNowPad:
     on_press(button_byte) — same contract as ble.BleController.
     ``status``: off | none | ok | err."""
 
-    def __init__(self, on_press, channel=1, force_channel=True):
+    def __init__(self, on_press, channel=1, force_channel=True, debug=False):
         self.channel = channel
         self.force_channel = force_channel
+        self.debug = debug
         self.status = "off"
         self._parser = PacketParser(on_press)
         self._e = None
         self._polls = 0  # channel-watchdog cadence counter
+        self.rx_count = 0  # frames received since start (debug/telemetry)
 
     @property
     def available(self):
@@ -120,15 +122,24 @@ class EspNowPad:
             self._polls = 0
             try:
                 sta = network.WLAN(network.STA_IF)
+                if self.debug:
+                    print("padlink: ch={} connected={} status={} rx={}".format(
+                        sta.config("channel"), sta.isconnected(),
+                        sta.status(), self.rx_count))
                 if sta.isconnected() or sta.config("channel") != self.channel:
                     self._pin_channel(sta)
                 self._update_status(sta)
-            except Exception:
-                pass
+            except Exception as e:
+                if self.debug:
+                    print("padlink watchdog err: {}".format(e))
         try:
             while self._e.any():
                 _, msg = self._e.recv(0)
                 if msg:
+                    self.rx_count += 1
+                    if self.debug:
+                        print("padlink rx[{}]: {}".format(
+                            self.rx_count, bytes(msg)))
                     self._parser.feed(msg)
         except Exception as e:
             print("padlink recv failed: {}".format(e))
