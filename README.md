@@ -24,14 +24,27 @@ over BLE.
 - Clear the wave and the field flashes green; the next wave starts a
   row lower and marches faster.
 
-The badge LCD shows the score, wave, lives (as little cannon blocks),
-invaders remaining, and who's driving (`PLAY*` = a human is at the
-cannon right now). CONFIRM toggles between the two button modes:
+The badge LCD shows the score, wave + difficulty, lives (as little
+cannon blocks), invaders remaining, and who's driving (`PLAY*` = a
+human is at the cannon right now). CONFIRM toggles between the two
+button modes:
 
-- **attract**: UP/DOWN brightness, LEFT/RIGHT game speed (0.25x–3x)
+- **attract**: UP/DOWN brightness, LEFT/RIGHT difficulty —
+  **easy / hard / nightmare** presets (bomb rate, bomb speed, march
+  tempo; switching starts a fresh game)
 - **play**: LEFT/RIGHT move the cannon, UP or DOWN fire
 
 CANCEL minimises in either mode.
+
+## Camp readability
+
+Tuned for spectators and the worse-for-wear (`RENDER TUNING` block at
+the top of `invaders.py`): the cannon pulses white at 2Hz (the pulsing
+thing is always the player, same as JAC-MAN); the shot streaks white
+below it and bombs streak above themselves, heating **orange → red**
+as they close on the cannon; kills pop white with a neighbour-splash
+in the victim's colour before fading out; the formation stays full
+brightness and only the shields recede.
 
 ## Playing with a real gamepad (the ESP-NOW bridge)
 

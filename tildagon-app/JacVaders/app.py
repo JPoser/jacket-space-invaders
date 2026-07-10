@@ -6,7 +6,8 @@ plays; a player can take the cannon from the badge D-pad or over BLE
 (ble.py, Adafruit Bluefruit Connect's Control Pad).
 
 Buttons — CONFIRM toggles between the two modes:
-  attract:  UP/DOWN brightness, LEFT/RIGHT game speed (0.25x–3x)
+  attract:  UP/DOWN brightness, LEFT/RIGHT difficulty (easy/hard/
+            nightmare — switching starts a fresh game)
   play:     LEFT/RIGHT move the cannon, UP or DOWN fire
   CANCEL    minimise (either mode)
 
@@ -91,6 +92,7 @@ class JacVadersApp(app.App):
                 player_idle_seconds=config.PLAYER_IDLE_SECONDS,
             )
             self.game.speed = config.GAME_SPEED
+            self.game.set_difficulty(config.DIFFICULTY)
 
         # BLE. Constructed here, but the serve tasks can only be spawned
         # from inside the running event loop — see _background_update.
@@ -162,11 +164,11 @@ class JacVadersApp(app.App):
             return
         if self.button_states.get(BUTTON_TYPES["LEFT"]):
             self.button_states.clear()
-            self._adjust_speed(-config.GAME_SPEED_STEP)
+            self._cycle_difficulty(-1)
             return
         if self.button_states.get(BUTTON_TYPES["RIGHT"]):
             self.button_states.clear()
-            self._adjust_speed(+config.GAME_SPEED_STEP)
+            self._cycle_difficulty(+1)
             return
 
     def background_update(self, delta):
@@ -259,16 +261,19 @@ class JacVadersApp(app.App):
             self.np.brightness = new
         print("brightness {:.2f}".format(new))
 
-    def _adjust_speed(self, step):
+    def _cycle_difficulty(self, step):
+        """LEFT/RIGHT in attract mode: easy → hard → nightmare. Switching
+        applies the preset and starts a fresh game."""
         if self.game is None:
             return
-        new = self.game.speed + step
-        if new < config.GAME_SPEED_MIN:
-            new = config.GAME_SPEED_MIN
-        if new > config.GAME_SPEED_MAX:
-            new = config.GAME_SPEED_MAX
-        self.game.speed = new
-        print("game speed {:.2f}x".format(new))
+        names = invaders.DIFFICULTY_ORDER
+        try:
+            i = names.index(self.game.difficulty)
+        except ValueError:
+            i = 0
+        name = names[(i + step) % len(names)]
+        self.game.set_difficulty(name)
+        print("difficulty -> {}".format(name))
 
     # -- LCD ------------------------------------------------------------------------
 
@@ -318,7 +323,8 @@ class JacVadersApp(app.App):
         ctx.move_to(0, -25).text("{:05d}".format(self.game.score))
 
         ctx.font_size = 13
-        ctx.move_to(0, 0).text("wave {}".format(self.game.level))
+        ctx.move_to(0, 0).text("wave {} · {}".format(
+            self.game.level, self.game.difficulty or "custom"))
         ctx.move_to(0, 18).text(self.game.mode_label())
 
         # Lives as little cannons.
@@ -337,8 +343,7 @@ class JacVadersApp(app.App):
             control, self._short_status(self.ble),
             self._short_status(self.pad),
             self._short_status(self.padlink)))
-        ctx.move_to(0, 74).text("spd {:.2g}x  brt {:.2g}".format(
-            self.game.speed, self.manual_brightness))
+        ctx.move_to(0, 74).text("brt {:.2g}".format(self.manual_brightness))
         if self.last_error:
             ctx.font_size = 10
             ctx.move_to(0, 88).text(self.last_error[:28])

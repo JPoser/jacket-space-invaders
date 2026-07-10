@@ -35,9 +35,57 @@ INVASION_ROW = 12   # an invader here means they've landed: game over
 SCORES = (30, 20, 10)   # formation row 0 (top) → 2 (bottom), arcade values
 UFO_SCORE = 100
 
-# The look. Cannon white so it never argues with the green shields;
-# player shots pale yellow, bombs hot orange, so the two read as
-# opposite traffic at a glance.
+# ===================== RENDER TUNING (tune on hardware) ======================
+# Camp-readability + juice knobs, rendering/timing only. Levels are
+# 0.0–1.0 multipliers applied to the base colours at paint time.
+# Perceived brightness on fabric is nonlinear — trust your eyes.
+
+# Brightness tiers. The formation stays FULL bright (you look at the
+# invaders as much as the cannon); only the static shields recede.
+SHIELD_LEVEL = 0.35
+FORMATION_LEVEL = 1.00
+UFO_LEVEL = 1.00
+
+# The cannon is "you": white, pulsing 100%↔60% at 2Hz — same visual
+# language as Jac-Man, so the pulsing thing is always the player.
+CANNON_PULSE_MIN = 0.60
+CANNON_PULSE_HZ = 2.0
+
+# Direction trails: rising things smear white below, falling things
+# smear above in their own heat colour. Lengths 1–2 sensible, 0 = off.
+SHOT_TRAIL = 2          # pixels of white streak under the shot
+SHOT_TRAIL_LEVEL = 0.50 # newest trail pixel level
+SHOT_TRAIL_FALLOFF = 0.45
+BOMB_TRAIL = 1          # pixels of streak above each bomb
+BOMB_TRAIL_LEVEL = 0.40
+
+# Bombs heat up as they fall: colour lerps FAR→NEAR by how close the
+# bomb is to the cannon row. Red = about to matter.
+BOMB_FAR_COLOR = (255, 140, 0)
+BOMB_NEAR_COLOR = (255, 0, 0)
+
+# Kill feedback: a hit pops WHITE for EXPLOSION_POP seconds (big kills
+# also splash the 4 neighbours in the victim's colour), then fades out
+# in the victim's colour for the rest of EXPLOSION_TIME.
+EXPLOSION_TIME = 0.45
+EXPLOSION_POP = 0.12
+EXPLOSION_SPLASH_LEVEL = 0.35
+
+# Difficulty presets, selectable on the badge (LEFT/RIGHT in attract
+# mode; switching starts a fresh game). These override the constructor
+# combat values. Tune freely — "easy" is for the worse-for-wear.
+DIFFICULTY_ORDER = ("easy", "hard", "nightmare")
+DIFFICULTIES = {
+    "easy":      {"bomb_interval": 2.2, "bomb_max": 2, "bomb_speed": 4.0,
+                  "march_base": 1.4, "wave_speedup": 0.93},
+    "hard":      {"bomb_interval": 1.6, "bomb_max": 3, "bomb_speed": 5.0,
+                  "march_base": 1.1, "wave_speedup": 0.90},
+    "nightmare": {"bomb_interval": 0.9, "bomb_max": 4, "bomb_speed": 7.0,
+                  "march_base": 0.75, "wave_speedup": 0.85},
+}
+# =============================================================================
+
+# BASE COLOURS — full-brightness hues; the levels above set final output.
 INVADER_COLORS = (
     (255, 60, 255),   # squids (top row)
     (0, 220, 255),    # crabs
@@ -46,11 +94,24 @@ INVADER_COLORS = (
 UFO_COLOR = (255, 0, 0)
 CANNON_COLOR = (255, 255, 255)
 SHOT_COLOR = (255, 255, 80)
-BOMB_COLOR = (255, 80, 0)
+SHOT_TRAIL_COLOR = (255, 255, 255)  # white streak, per playtest feedback
 SHIELD_COLOR = (0, 180, 60)
-EXPLOSION_COLOR = (255, 255, 255)
+EXPLOSION_COLOR = (255, 255, 255)   # the pop phase; fade uses victim colour
 FIELD_FLASH = (10, 64, 22)    # wave-clear celebration wash
 OVER_COLOR = (120, 0, 0)      # the invaders won: they glow dim red
+
+
+def dim(color, level):
+    """A colour scaled to a 0.0–1.0 brightness level."""
+    return (int(color[0] * level), int(color[1] * level),
+            int(color[2] * level))
+
+
+def lerp(a, b, t):
+    """Colour a→b at 0.0–1.0 t."""
+    return (int(a[0] + (b[0] - a[0]) * t),
+            int(a[1] + (b[1] - a[1]) * t),
+            int(a[2] + (b[2] - a[2]) * t))
 
 
 class _Invader:
@@ -95,10 +156,23 @@ class SpaceInvaders:
         self.player = False
         self._player_idle = 0.0
 
-        self.speed = 1.0  # user knob, scales the whole clock
+        self.speed = 1.0  # base clock multiplier (config, not runtime)
+        self.difficulty = None  # set via set_difficulty(); None = ctor values
         self._elapsed = 0.0
         self._frame_elapsed = 0.0
         self.new_game()
+
+    def set_difficulty(self, name):
+        """Apply a DIFFICULTIES preset and start a fresh game. Unknown
+        names are ignored (the current settings keep playing)."""
+        preset = DIFFICULTIES.get(name)
+        if preset is None:
+            return False
+        for key, value in preset.items():
+            setattr(self, key, value)
+        self.difficulty = name
+        self.new_game()
+        return True
 
     # -- Setup / resets --------------------------------------------------------
 
@@ -320,7 +394,7 @@ class SpaceInvaders:
                 if (self.shot is not None and self.shot[0] == c
                         and int(self.shot[1]) == r):
                     self.shot = None    # shot and bomb cancel out
-                    self._explode(c, r)
+                    self._explode(c, r, BOMB_FAR_COLOR)
                     dead = True
                     break
                 if r == SHIELD_ROW and self.shields.get(c, 0) > 0:
@@ -328,7 +402,7 @@ class SpaceInvaders:
                     dead = True
                     break
                 if r == CANNON_ROW and c == self.cannon:
-                    self._explode(c, r)
+                    self._explode(c, r, BOMB_NEAR_COLOR, big=True)
                     self.state = "dying"
                     self._state_timer = 1.5
                     dead = True
@@ -360,14 +434,16 @@ class SpaceInvaders:
         """Resolve the shot arriving in cell (c, r). True consumes it."""
         if self.ufo is not None and r == UFO_ROW and int(self.ufo[0] + 0.5) == c:
             self.score += UFO_SCORE
-            self._explode(c, r)
+            self._explode(c, r, UFO_COLOR, big=True)  # 100 points, big pop
             self.ufo = None
             return True
         for inv in self._alive():
             if self._invader_pos(inv) == (c, r):
                 inv.alive = False
                 self.score += SCORES[inv.fr]
-                self._explode(c, r)
+                # The satisfying one: pop white, splash + fade in the
+                # invader's own colour.
+                self._explode(c, r, INVADER_COLORS[inv.fr], big=True)
                 if self.alive_count() == 0:
                     self.state = "clear"
                     self._state_timer = 2.0
@@ -375,7 +451,7 @@ class SpaceInvaders:
         for b in self.bombs:
             if b[0] == c and int(b[1]) == r:
                 self.bombs.remove(b)
-                self._explode(c, r)
+                self._explode(c, r, BOMB_FAR_COLOR)  # small mutual fizzle
                 return True
         if r == SHIELD_ROW and self.shields.get(c, 0) > 0:
             self.shields[c] -= 1  # your own shield blocks your shot
@@ -396,8 +472,11 @@ class SpaceInvaders:
             if self.ufo[0] < -0.5 or self.ufo[0] > COLS - 0.5:
                 self.ufo = None
 
-    def _explode(self, c, r):
-        self.explosions.append([c, r, 0.25])
+    def _explode(self, c, r, color=EXPLOSION_COLOR, big=False):
+        """Kill feedback: white pop (big ones splash the neighbours in the
+        victim's colour), then a fade-out in that colour. See the
+        EXPLOSION_* tuning constants."""
+        self.explosions.append([c, r, EXPLOSION_TIME, color, big])
 
     def _tick_explosions(self, delta):
         keep = []
@@ -476,6 +555,27 @@ class SpaceInvaders:
 
     # -- Rendering ------------------------------------------------------------------------
 
+    def _cannon_pulse(self):
+        """The cannon's brightness right now: a triangle wave between
+        CANNON_PULSE_MIN and 1.0 at CANNON_PULSE_HZ — you're always
+        findable, never static."""
+        phase = (self._elapsed * CANNON_PULSE_HZ) % 1.0
+        tri = 1.0 - abs(2.0 * phase - 1.0)
+        return CANNON_PULSE_MIN + (1.0 - CANNON_PULSE_MIN) * tri
+
+    def _bomb_color(self, row):
+        """Bombs heat up orange→red as they close on the cannon row."""
+        t = row / CANNON_ROW
+        if t < 0.0:
+            t = 0.0
+        if t > 1.0:
+            t = 1.0
+        return lerp(BOMB_FAR_COLOR, BOMB_NEAR_COLOR, t)
+
+    def _put(self, c, r, color):
+        if 0 <= c < COLS and 0 <= r < ROWS:
+            self.strip[c * self.leds_per_strip + r] = color
+
     def _paint(self):
         s = self.strip
         lps = self.leds_per_strip
@@ -488,44 +588,67 @@ class SpaceInvaders:
         for i in range(COLS * lps):
             s[i] = base
 
-        # Shields fade with their health.
+        # Shields: background tier, further faded by remaining health.
         for c, h in self.shields.items():
             if h > 0 and not over:
-                f = h / SHIELD_HEALTH
-                s[c * lps + SHIELD_ROW] = (int(SHIELD_COLOR[0] * f),
-                                           int(SHIELD_COLOR[1] * f),
-                                           int(SHIELD_COLOR[2] * f))
+                self._put(c, SHIELD_ROW,
+                          dim(SHIELD_COLOR, SHIELD_LEVEL * h / SHIELD_HEALTH))
 
         for inv in self._alive():
             c, r = self._invader_pos(inv)
-            if 0 <= c < COLS and 0 <= r < ROWS:
-                s[c * lps + r] = OVER_COLOR if over else INVADER_COLORS[inv.fr]
+            self._put(c, r, OVER_COLOR if over
+                      else dim(INVADER_COLORS[inv.fr], FORMATION_LEVEL))
 
         if over:
             return
 
         if self.ufo is not None:
-            c = int(self.ufo[0] + 0.5)
-            if 0 <= c < COLS:
-                s[c * lps + UFO_ROW] = UFO_COLOR
+            self._put(int(self.ufo[0] + 0.5), UFO_ROW,
+                      dim(UFO_COLOR, UFO_LEVEL))
 
+        # Bombs: heat colour by proximity, streak above showing "falling".
         for b in self.bombs:
             r = int(b[1])
-            if 0 <= r < ROWS:
-                s[b[0] * lps + r] = BOMB_COLOR
+            color = self._bomb_color(r)
+            for i in range(BOMB_TRAIL):
+                self._put(b[0], r - 1 - i,
+                          dim(color, BOMB_TRAIL_LEVEL * (0.5 ** i)))
+            self._put(b[0], r, color)
 
+        # The shot: white streak below showing "rising".
         if self.shot is not None:
             r = int(self.shot[1])
-            if 0 <= r < ROWS:
-                s[self.shot[0] * lps + r] = SHOT_COLOR
+            for i in range(SHOT_TRAIL):
+                self._put(self.shot[0], r + 1 + i,
+                          dim(SHOT_TRAIL_COLOR,
+                              SHOT_TRAIL_LEVEL * (SHOT_TRAIL_FALLOFF ** i)))
+            self._put(self.shot[0], r, SHOT_COLOR)
 
-        for c, r, _ in self.explosions:
-            if 0 <= c < COLS and 0 <= r < ROWS:
-                s[c * lps + r] = EXPLOSION_COLOR
+        # Kill feedback on top of the actors: a white pop (big kills
+        # splash the neighbours in the victim's colour), then a fade-out
+        # in that colour.
+        for c, r, ttl, color, big in self.explosions:
+            age = EXPLOSION_TIME - ttl
+            if age < EXPLOSION_POP:
+                if big:
+                    splash = dim(color, EXPLOSION_SPLASH_LEVEL)
+                    self._put(c - 1, r, splash)
+                    self._put(c + 1, r, splash)
+                    self._put(c, r - 1, splash)
+                    self._put(c, r + 1, splash)
+                self._put(c, r, EXPLOSION_COLOR)
+            else:
+                fade = ttl / (EXPLOSION_TIME - EXPLOSION_POP)
+                self._put(c, r, dim(color, fade))
 
-        # Cannon last: it flashes while dying, glows steady otherwise.
-        if self.state != "dying" or int(self._elapsed * 5) % 2 == 0:
-            s[self.cannon * lps + CANNON_ROW] = CANNON_COLOR
+        # Cannon last: flashes while dying, pulses otherwise — the pulsing
+        # thing is always the player, same as Jac-Man.
+        if self.state == "dying":
+            if int(self._elapsed * 5) % 2 == 0:
+                self._put(self.cannon, CANNON_ROW, CANNON_COLOR)
+        else:
+            self._put(self.cannon, CANNON_ROW,
+                      dim(CANNON_COLOR, self._cannon_pulse()))
 
     # -- LCD helpers -----------------------------------------------------------------------
 

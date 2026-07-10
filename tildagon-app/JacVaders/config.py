@@ -43,11 +43,14 @@ BRIGHTNESS_STEP = 0.1
 BRIGHTNESS_MIN = 0.05  # never zero, so it's obvious the knob works
 BRIGHTNESS_MAX = 1.0
 
-# Game clock multiplier, adjusted at runtime via LEFT/RIGHT (attract).
+# Base game clock multiplier (applied once at boot; runtime LEFT/RIGHT
+# now cycles difficulty presets instead — see DIFFICULTY below).
 GAME_SPEED = 1.0
-GAME_SPEED_STEP = 0.25
-GAME_SPEED_MIN = 0.25
-GAME_SPEED_MAX = 3.0
+
+# Difficulty at boot: "easy", "hard" or "nightmare" (presets live in
+# invaders.DIFFICULTIES, cycled with LEFT/RIGHT in attract mode).
+# Easy by default — it's for the worse-for-wear camp attendee.
+DIFFICULTY = "easy"
 
 # --- Player control ------------------------------------------------------------
 

@@ -321,17 +321,99 @@ def test_render_basics():
     game, strip = make_game()
     game.tick(0.2)  # one frame past the 10fps gate
     lps = invaders.ROWS
-    # Cannon is white at its cell.
-    assert strip[game.cannon * lps + invaders.CANNON_ROW] == invaders.CANNON_COLOR
-    # Shields are green-ish.
+    # Cannon is white at its cell, pulsing but never below the floor.
+    px = strip[game.cannon * lps + invaders.CANNON_ROW]
+    floor = invaders.dim(invaders.CANNON_COLOR, invaders.CANNON_PULSE_MIN)
+    assert px[0] == px[1] == px[2], "cannon not white: {}".format(px)
+    assert px[0] >= floor[0] - 1
+    # Shields are green-ish, at background level.
     for c in invaders.SHIELD_COLS:
         px = strip[c * lps + invaders.SHIELD_ROW]
         assert px[1] > px[0] and px[1] > px[2]
-    # Every live invader shows its row colour.
+        assert px[1] <= invaders.SHIELD_COLOR[1] * invaders.SHIELD_LEVEL + 1
+    # Every live invader shows its row colour at formation level.
     for inv in game._alive():
         c, r = game._invader_pos(inv)
-        assert strip[c * lps + r] in (invaders.INVADER_COLORS[inv.fr],
-                                      invaders.EXPLOSION_COLOR)
+        expected = invaders.dim(invaders.INVADER_COLORS[inv.fr],
+                                invaders.FORMATION_LEVEL)
+        assert strip[c * lps + r] in (expected, invaders.EXPLOSION_COLOR)
+
+
+def test_cannon_pulse_modulates():
+    game, strip = make_game()
+    lps = invaders.ROWS
+    seen = set()
+    for _ in range(10):  # 1s = two full pulse cycles at 2Hz
+        game.tick(0.1)
+        px = strip[game.cannon * lps + invaders.CANNON_ROW]
+        if px[0] == px[1] == px[2] and px[0] > 0:  # it's the cannon
+            seen.add(px)
+    assert len(seen) > 1, "cannon pulse isn't modulating"
+
+
+def test_shot_has_white_trail():
+    game, strip = make_game()
+    game._fire()
+    game._tick_shot(0.05)  # a fraction of a row: shot still in flight
+    game.tick(0.2)
+    lps = invaders.ROWS
+    r = int(game.shot[1])
+    assert strip[game.cannon * lps + r] == invaders.SHOT_COLOR
+    trail = strip[game.cannon * lps + r + 1]
+    expect = invaders.dim(invaders.SHOT_TRAIL_COLOR,
+                          invaders.SHOT_TRAIL_LEVEL)
+    # The cannon paints over the deepest trail pixel when adjacent, but
+    # the first trail pixel above it must be the white streak.
+    assert trail in (expect, strip[game.cannon * lps + invaders.CANNON_ROW])
+
+
+def test_bombs_heat_up_towards_the_cannon():
+    game, _ = make_game()
+    far = game._bomb_color(2)
+    near = game._bomb_color(invaders.CANNON_ROW)
+    assert near == invaders.BOMB_NEAR_COLOR
+    assert far[1] > near[1], "bomb should lose orange as it falls"
+
+
+def test_invader_kill_pops_then_fades():
+    game, strip = make_game()
+    inv = bottom_invader(game)
+    c, r = game._invader_pos(inv)
+    game.shot = [c, r + 1.0]
+    game._tick_shot(0.2)
+    assert not inv.alive
+    ex = game.explosions[-1]
+    assert ex[3] == invaders.INVADER_COLORS[inv.fr]  # fades in own colour
+    assert ex[4] is True                             # big = splashes
+    game.tick(0.1)  # one frame, still inside the 0.12s pop window
+    lps = invaders.ROWS
+    assert strip[c * lps + r] == invaders.EXPLOSION_COLOR
+    # After the pop window, the fade is the victim's colour, dimming.
+    run(game, invaders.EXPLOSION_POP + 0.1, dt=0.05)
+    px = strip[c * lps + r]
+    if game.explosions:  # not yet expired
+        assert px != invaders.EXPLOSION_COLOR
+        assert px[0] <= invaders.INVADER_COLORS[inv.fr][0] + 1
+
+
+# -- Difficulty ----------------------------------------------------------------------------------
+
+def test_difficulty_presets_apply_and_restart():
+    game, _ = make_game()
+    game.score = 500
+    assert game.set_difficulty("nightmare")
+    assert game.difficulty == "nightmare"
+    assert game.score == 0  # fresh game
+    nightmare_interval = game.bomb_interval
+    assert game.set_difficulty("easy")
+    assert game.bomb_interval > nightmare_interval
+    assert game.march_base > invaders.DIFFICULTIES["nightmare"]["march_base"]
+    assert not game.set_difficulty("impossible")  # unknown: ignored
+    assert game.difficulty == "easy"
+
+
+def test_difficulty_order_covers_presets():
+    assert set(invaders.DIFFICULTY_ORDER) == set(invaders.DIFFICULTIES)
 
 
 # -- BLE packet parser -----------------------------------------------------------------------------
