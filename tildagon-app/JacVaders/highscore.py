@@ -28,6 +28,14 @@ LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 TABLE_SIZE = 10
 ENTRY_TIMEOUT = 20.0  # seconds before initials auto-confirm
 
+# GIL donations per tick while a POST is in flight. The cold TLS
+# handshake is ~350ms of CPU-bound mbedTLS; at the worker's default
+# 5ms-per-tick donation (~10% duty) it can't finish inside any sane
+# deadline (verified on hardware: standalone POST 532ms, same POST
+# under the scheduler dead at 20s). A burst of donations is fine here:
+# it's game over, the LEDs are only running the marquee.
+WAIT_DONATION_BURST = 8
+
 
 class InitialsEntry:
     """Three-slot arcade initials picker.
@@ -208,7 +216,10 @@ class Submitter:
                 self._finish("no wifi")
         elif self.state == "wait":
             if self.worker is not None:
-                self.worker.tick()
+                # tick() no-ops once the job lands, so the burst is free
+                # in the tail; while the job runs it donates 8x5ms.
+                for _ in range(WAIT_DONATION_BURST):
+                    self.worker.tick()
                 res = self.worker.result()
                 if res is not None:
                     self._handle(res[1])

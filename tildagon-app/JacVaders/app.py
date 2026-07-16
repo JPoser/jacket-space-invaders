@@ -146,7 +146,12 @@ class JacVadersApp(app.App):
                     # Deadline: on the badge a socket timeout ticks in
                     # GIL-starved slow motion; abandon and move on.
                     worker = pollworker.PollWorker(
-                        deadline_s=config.HIGHSCORE_HTTP_TIMEOUT + 10)
+                        deadline_s=config.HIGHSCORE_HTTP_TIMEOUT + 20)
+                    # An abandoned worker may still hold the client's
+                    # socket in a stuck syscall; drop the connection so
+                    # its replacement never shares it (jacket-client's
+                    # on_abandon pattern).
+                    worker.on_abandon = client.close
                 except Exception as e:
                     print("highscore: no submit path: {}".format(e))
             self.submitter = highscore.Submitter(
