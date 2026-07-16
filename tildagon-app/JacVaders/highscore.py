@@ -26,7 +26,11 @@ except ImportError:
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 TABLE_SIZE = 10
-ENTRY_TIMEOUT = 20.0  # seconds before initials auto-confirm
+ENTRY_TIMEOUT = 20.0  # seconds of picker silence before it resolves itself
+# Ignore confirm presses younger than this: the fire button that killed
+# you is often still being mashed when the picker opens, and a death-mash
+# must not instantly submit under the previous player's initials.
+MIN_CONFIRM_AGE = 1.0
 
 # GIL donations per tick while a POST is in flight. The cold TLS
 # handshake is ~350ms of CPU-bound mbedTLS; at the worker's default
@@ -51,7 +55,9 @@ class InitialsEntry:
             self.slots.append(LETTERS.index(ch) if ch in LETTERS else 0)
         self.cursor = 0
         self.done = False
-        self.elapsed = 0.0
+        self.touched = False  # any human input since the picker opened
+        self.elapsed = 0.0    # since last input (drives the timeout)
+        self.age = 0.0        # since the picker opened (never resets)
 
     @property
     def text(self):
@@ -60,11 +66,13 @@ class InitialsEntry:
     def cycle(self, step):
         """Spin the wheel under the cursor (UP/DOWN)."""
         self.slots[self.cursor] = (self.slots[self.cursor] + step) % len(LETTERS)
+        self.touched = True
         self.elapsed = 0.0
 
     def move(self, step):
         """Shift the cursor (LEFT/RIGHT), clamped to the three slots."""
         self.cursor = max(0, min(2, self.cursor + step))
+        self.touched = True
         self.elapsed = 0.0
 
     def confirm(self):
@@ -72,11 +80,18 @@ class InitialsEntry:
         return self.text
 
     def tick(self, delta):
-        """Auto-confirm after ENTRY_TIMEOUT with no input, so a walked-
-        away player never wedges the badge in entry mode."""
+        """Resolve the picker after ENTRY_TIMEOUT of silence, so a
+        walked-away player never wedges the badge in entry mode.
+
+        Returns None while waiting; the initials string if the picker
+        was touched (they engaged, then wandered off - keep the score);
+        or "" if nobody ever touched it (an abandoned game - the score
+        must NOT go on the board under the previous player's initials)."""
         self.elapsed += delta
+        self.age += delta
         if self.elapsed >= ENTRY_TIMEOUT:
-            return self.confirm()
+            self.done = True
+            return self.text if self.touched else ""
         return None
 
 

@@ -143,6 +143,23 @@ def test_entry_timeout_autoconfirms():
     print("ok: entry auto-confirm timeout (input resets it)")
 
 
+def test_entry_untouched_timeout_discards():
+    e = highscore.InitialsEntry("CAA")
+    got = e.tick(highscore.ENTRY_TIMEOUT + 1)
+    assert got == ""  # nobody home: the app must drop the score
+    assert e.done
+    print("ok: untouched picker discards instead of ghosting the board")
+
+
+def test_entry_age_never_resets():
+    e = highscore.InitialsEntry()
+    e.tick(2.0)
+    e.cycle(+1)
+    assert e.elapsed == 0.0  # input resets the walk-away clock...
+    assert e.age >= 2.0      # ...but not the mash-debounce age
+    print("ok: entry age survives input (confirm debounce)")
+
+
 def test_entry_rubbish_initials_default():
     e = highscore.InitialsEntry("é!")
     assert e.text == "AAA"[0] * 1 + "AA"  # every slot falls back to A

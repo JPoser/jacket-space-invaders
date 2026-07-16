@@ -224,7 +224,8 @@ class JacVadersApp(app.App):
         if (self.button_states.get(BUTTON_TYPES["CONFIRM"])
                 or self.button_states.get(BUTTON_TYPES["CANCEL"])):
             self.button_states.clear()
-            self._commit_initials(entry.confirm())
+            if entry.age >= highscore.MIN_CONFIRM_AGE:
+                self._commit_initials(entry.confirm())
         elif self.button_states.get(BUTTON_TYPES["UP"]):
             self.button_states.clear()
             entry.cycle(+1)
@@ -272,9 +273,16 @@ class JacVadersApp(app.App):
             if self.scores is not None:
                 self._watch_game_over()
         if self._entry is not None:
-            name = self._entry.tick(delta)  # auto-confirm on walk-away
+            name = self._entry.tick(delta)  # resolves on walk-away
             if name is not None:
-                self._commit_initials(name)
+                if name:
+                    self._commit_initials(name)
+                else:
+                    # Untouched picker: an abandoned game, not a player.
+                    print("highscore: picker untouched, dropping {} pts"
+                          .format(self._entry_score[0]))
+                    self._entry = None
+                    self._entry_score = None
         if self.submitter is not None:
             self.submitter.poll(delta)
 
@@ -333,7 +341,9 @@ class JacVadersApp(app.App):
                 self._entry.move(-1)
             elif d == (1, 0):
                 self._entry.move(+1)
-            else:  # any fire/restart button locks the initials in
+            elif self._entry.age >= highscore.MIN_CONFIRM_AGE:
+                # any fire/restart button locks the initials in (unless
+                # it's the death-mash still landing)
                 self._commit_initials(self._entry.confirm())
             return
         d = ble.BUTTON_DIRS.get(button)
@@ -364,7 +374,7 @@ class JacVadersApp(app.App):
                 self._entry.move(-1)
             elif name == "right":
                 self._entry.move(+1)
-            else:
+            elif self._entry.age >= highscore.MIN_CONFIRM_AGE:
                 self._commit_initials(self._entry.confirm())
             return
         if name == "left":

@@ -279,6 +279,28 @@ def test_player_idles_back_to_ai():
     assert not game.player
 
 
+def test_new_game_resets_player_flag():
+    # Without the reset, the flag lingers across the marquee auto-restart
+    # and an abandoned autopilot game ends flagged "human".
+    game, _ = make_game()
+    game.fire()
+    assert game.player
+    game.new_game()
+    assert not game.player
+
+
+def test_restart_from_marquee_is_still_a_player_takeover():
+    game, _ = make_game()
+    game.state = "over"
+    game.fire()
+    assert game.state == "playing"
+    assert game.player
+    game.state = "over"
+    game.steer(1)
+    assert game.state == "playing"
+    assert game.player
+
+
 def test_input_skips_game_over():
     game, _ = make_game()
     game.score = 500

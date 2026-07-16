@@ -183,6 +183,12 @@ class SpaceInvaders:
         self.state = "playing"  # playing | dying | clear | over
         self._state_timer = 0.0
         self.invaded = False
+        # A fresh game belongs to the AI until someone actually drives:
+        # without this, the flag lingers across the auto-restart and a
+        # walked-away game can end flagged "human" (and, with high
+        # scores on, put a ghost entry on the board).
+        self.player = False
+        self._player_idle = 0.0
         # The UFO runs on its own clock, carried across waves — otherwise
         # short waves would mean it never shows up at all.
         self._ufo_elapsed = 0.0
@@ -235,21 +241,23 @@ class SpaceInvaders:
         the game-over marquee starts a new game."""
         if direction not in (-1, 1):
             return
+        if self.state == "over":
+            self.new_game()  # resets player; retaken just below
+            self.player = True
+            return
         self.player = True
         self._player_idle = 0.0
-        if self.state == "over":
-            self.new_game()
-            return
         if self.state == "playing":
             self._move_cannon(direction)
 
     def fire(self):
         """Fire (one shot in flight at a time, like the arcade)."""
+        if self.state == "over":
+            self.new_game()  # resets player; retaken just below
+            self.player = True
+            return
         self.player = True
         self._player_idle = 0.0
-        if self.state == "over":
-            self.new_game()
-            return
         self._fire()
 
     def _move_cannon(self, direction):
