@@ -46,6 +46,32 @@ as they close on the cannon; kills pop white with a neighbour-splash
 in the victim's colour before fading out; the formation stays full
 brightness and only the shields recede.
 
+## High scores (feature-flagged)
+
+`HIGHSCORE_ENABLED` in `config.py` turns on the whole arcade ending
+(set it `False` to back the lot out):
+
+- When a **human** game ends with a score, the badge LCD becomes the
+  classic initials picker: UP/DOWN spin the letter (A–Z then 0–9),
+  LEFT/RIGHT move, FIRE/CONFIRM locks it in — from the badge D-pad,
+  the gamepad bridge or a phone alike. Walk away and it auto-confirms
+  after 20 seconds; the score is never lost.
+- Scores land in a **local top-10** on badge flash
+  (`/jacvaders_scores.json`), so the table works with no network.
+- If `HIGHSCORE_URL` is set, each entry is also submitted to
+  [jacket-server](../jacket-server)'s `POST /api/v1/scores` and appears
+  on the public leaderboard at `/scores`. The API key goes in
+  `secrets.py` (copy `secrets.example.py`; it's gitignored).
+
+The radio dance behind the submission: at game over — the one moment
+nobody needs the gamepad — `padlink` pauses its channel watchdog, the
+badge joins camp WiFi with the badge OS's saved credentials, the POST
+runs on a worker thread (`pollworker.py` + `httpclient.py`, both
+borrowed from jacket-client), then WiFi drops and ESP-NOW channel 1 is
+re-pinned. Any failure just leaves the score queued in the JSON file;
+it rides the next game over. The LCD's `hs` status shows the state
+(`idle` / `wifi..` / `send..` / `sent #N` / `no wifi` / `fail`).
+
 ## Playing with a real gamepad (the ESP-NOW bridge)
 
 The default controller path: an 8BitDo Micro (or any Bluepad32-
@@ -104,6 +130,9 @@ tildagon-app/
     ble.py       NUS peripheral + Bluefruit control-pad packet parser
     blehost.py   BLE HID host for hardware gamepads (8BitDo keyboard mode)
     app.py       Tildagon app: buttons, LCD, background tick
+    highscore.py initials picker, local top-10, server submission
+    httpclient.py + pollworker.py   borrowed from jacket-client: keep-alive
+                 HTTP + the off-loop worker thread the POST runs on
     strip.py     DimmableStrip (brightness + serpentine remap),
                  trimmed from jacket-client's runner.py
     config.py    hexpansion port, geometry, speeds, timings

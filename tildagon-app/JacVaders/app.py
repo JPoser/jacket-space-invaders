@@ -21,6 +21,7 @@ from events.input import Buttons, BUTTON_TYPES
 from . import ble
 from . import blehost
 from . import config
+from . import highscore
 from . import invaders
 from . import padlink
 from .strip import DimmableStrip
@@ -36,6 +37,11 @@ try:
     from system.hexpansion.config import HexpansionConfig
 except Exception:
     HexpansionConfig = None
+
+try:
+    import wifi  # badge OS wifi manager (saved camp credentials)
+except Exception:
+    wifi = None
 
 
 # Layout constants — chosen to fit inside the round LCD bezel.
@@ -117,6 +123,37 @@ class JacVadersApp(app.App):
                 self._on_ble_press, channel=config.PADLINK_CHANNEL,
                 force_channel=config.PADLINK_FORCE_CHANNEL)
 
+        # High scores (config.HIGHSCORE_ENABLED): local top-10 on flash,
+        # initials entry at game over, best-effort submission to
+        # jacket-server. All optional; None everywhere = old behaviour.
+        self.scores = None
+        self.submitter = None
+        self._entry = None          # InitialsEntry while collecting
+        self._entry_score = None    # (score, wave, difficulty) snapshot
+        self._last_initials = "AAA"  # remembered between games
+        self._last_state = ""
+        if self.game is not None and config.HIGHSCORE_ENABLED:
+            self.scores = highscore.ScoreTable(config.HIGHSCORE_FILE)
+            client = None
+            worker = None
+            if config.HIGHSCORE_URL and wifi is not None:
+                try:
+                    from . import httpclient
+                    from . import pollworker
+                    client = httpclient.PersistentClient(
+                        config.HIGHSCORE_URL,
+                        timeout=config.HIGHSCORE_HTTP_TIMEOUT)
+                    # Deadline: on the badge a socket timeout ticks in
+                    # GIL-starved slow motion; abandon and move on.
+                    worker = pollworker.PollWorker(
+                        deadline_s=config.HIGHSCORE_HTTP_TIMEOUT + 10)
+                except Exception as e:
+                    print("highscore: no submit path: {}".format(e))
+            self.submitter = highscore.Submitter(
+                self.scores, config.HIGHSCORE_GAME, client,
+                config.HIGHSCORE_API_KEY, wifi=wifi, padlink=self.padlink,
+                worker=worker, wifi_timeout=config.HIGHSCORE_WIFI_TIMEOUT)
+
         # Input flash: the LCD shows the last remote input for a moment,
         # so "is the controller getting through?" has a visible answer.
         self._input_flash = 0.0
@@ -130,6 +167,9 @@ class JacVadersApp(app.App):
     # -- App lifecycle ----------------------------------------------------------
 
     def update(self, delta):
+        if self._entry is not None:
+            self._update_entry()
+            return
         if self.button_states.get(BUTTON_TYPES["CANCEL"]):
             self.button_states.clear()
             self.minimise()
@@ -171,6 +211,28 @@ class JacVadersApp(app.App):
             self._cycle_difficulty(+1)
             return
 
+    def _update_entry(self):
+        """Badge buttons drive the initials picker: UP/DOWN spin the
+        letter, LEFT/RIGHT move the cursor, CONFIRM (or CANCEL) locks it
+        in — the score is never thrown away, so CANCEL just accepts."""
+        entry = self._entry
+        if (self.button_states.get(BUTTON_TYPES["CONFIRM"])
+                or self.button_states.get(BUTTON_TYPES["CANCEL"])):
+            self.button_states.clear()
+            self._commit_initials(entry.confirm())
+        elif self.button_states.get(BUTTON_TYPES["UP"]):
+            self.button_states.clear()
+            entry.cycle(+1)
+        elif self.button_states.get(BUTTON_TYPES["DOWN"]):
+            self.button_states.clear()
+            entry.cycle(-1)
+        elif self.button_states.get(BUTTON_TYPES["LEFT"]):
+            self.button_states.clear()
+            entry.move(-1)
+        elif self.button_states.get(BUTTON_TYPES["RIGHT"]):
+            self.button_states.clear()
+            entry.move(+1)
+
     def background_update(self, delta):
         # The OS runs this in a bare create_task; an uncaught exception here
         # kills the game loop silently forever. Record and carry on.
@@ -202,6 +264,42 @@ class JacVadersApp(app.App):
             self._input_flash -= delta
         if self.game is not None:
             self.game.tick(delta)
+            if self.scores is not None:
+                self._watch_game_over()
+        if self._entry is not None:
+            name = self._entry.tick(delta)  # auto-confirm on walk-away
+            if name is not None:
+                self._commit_initials(name)
+        if self.submitter is not None:
+            self.submitter.poll(delta)
+
+    def _watch_game_over(self):
+        """Catch the moment a human game ends: snapshot the score before
+        the marquee auto-restarts the game, and open the initials picker."""
+        state = self.game.state
+        if (state == "over" and self._last_state != "over"
+                and self.game.player and self.game.score > 0
+                and self._entry is None):
+            self._entry = highscore.InitialsEntry(self._last_initials)
+            self._entry_score = (self.game.score, self.game.level,
+                                 self.game.difficulty)
+            print("game over, human score {} — initials time".format(
+                self.game.score))
+        self._last_state = state
+
+    def _commit_initials(self, name):
+        """Initials locked in: record locally, flash the result, and set
+        the submitter loose on the pending queue."""
+        score, wave, difficulty = self._entry_score
+        self._entry = None
+        self._entry_score = None
+        self._last_initials = name
+        rank = self.scores.add(name, score, wave, difficulty)
+        self._note_input(
+            "{} #{}".format(name, rank) if rank else "{} saved".format(name))
+        print("highscore: {} {} (local rank {})".format(name, score, rank))
+        if self.submitter is not None:
+            self.submitter.kick()
 
     _BLE_LABELS = {0x31: "restart", 0x35: "fire", 0x36: "fire",
                    0x37: "left", 0x38: "right", 0x32: "fire",
@@ -219,6 +317,19 @@ class JacVadersApp(app.App):
         self._note_input(self._BLE_LABELS.get(
             button, "btn {}".format(chr(button))))
         if self.game is None:
+            return
+        if self._entry is not None:
+            d = ble.BUTTON_DIRS.get(button)
+            if d == (0, -1):
+                self._entry.cycle(+1)
+            elif d == (0, 1):
+                self._entry.cycle(-1)
+            elif d == (-1, 0):
+                self._entry.move(-1)
+            elif d == (1, 0):
+                self._entry.move(+1)
+            else:  # any fire/restart button locks the initials in
+                self._commit_initials(self._entry.confirm())
             return
         d = ble.BUTTON_DIRS.get(button)
         if d == (-1, 0):
@@ -238,6 +349,18 @@ class JacVadersApp(app.App):
         fire, start restarts."""
         self._note_input(name)
         if self.game is None:
+            return
+        if self._entry is not None:
+            if name == "up":
+                self._entry.cycle(+1)
+            elif name == "down":
+                self._entry.cycle(-1)
+            elif name == "left":
+                self._entry.move(-1)
+            elif name == "right":
+                self._entry.move(+1)
+            else:
+                self._commit_initials(self._entry.confirm())
             return
         if name == "left":
             self.game.steer(-1)
@@ -276,6 +399,27 @@ class JacVadersApp(app.App):
         print("difficulty -> {}".format(name))
 
     # -- LCD ------------------------------------------------------------------------
+
+    def _draw_entry(self, ctx):
+        """The arcade moment: big initials, cursor letter in green."""
+        score, wave, _ = self._entry_score
+        ctx.font_size = 14
+        ctx.move_to(0, -25).text("NEW HIGH SCORE")
+        ctx.font_size = 20
+        ctx.move_to(0, -4).text("{:05d}".format(score))
+        ctx.font_size = 34
+        for i, ch in enumerate(self._entry.text):
+            if i == self._entry.cursor:
+                ctx.rgb(*INVADER_GREEN)
+            else:
+                ctx.rgb(1, 1, 1)
+            x = (i - 1) * 28
+            ctx.move_to(x, 32).text(ch)
+            if i == self._entry.cursor:
+                ctx.rectangle(x - 10, 48, 20, 3).fill()
+        ctx.rgb(1, 1, 1)
+        ctx.font_size = 10
+        ctx.move_to(0, 66).text("UP/DN letter · L/R move · FIRE ok")
 
     _STATUS_SHORT = {"advertising": "adv", "connected": "ok", "off": "off",
                      "no BLE": "none"}
@@ -319,6 +463,12 @@ class JacVadersApp(app.App):
             ctx.move_to(0, -44).text("» {} «".format(self._input_label))
             ctx.rgb(1, 1, 1)
 
+        # Initials picker takes over the readout until confirmed.
+        if self._entry is not None:
+            self._draw_entry(ctx)
+            ctx.restore()
+            return
+
         ctx.font_size = 20
         ctx.move_to(0, -25).text("{:05d}".format(self.game.score))
 
@@ -343,7 +493,10 @@ class JacVadersApp(app.App):
             control, self._short_status(self.ble),
             self._short_status(self.pad),
             self._short_status(self.padlink)))
-        ctx.move_to(0, 74).text("brt {:.2g}".format(self.manual_brightness))
+        line = "brt {:.2g}".format(self.manual_brightness)
+        if self.submitter is not None:
+            line += "  hs {}".format(self.submitter.status)
+        ctx.move_to(0, 74).text(line)
         if self.last_error:
             ctx.font_size = 10
             ctx.move_to(0, 88).text(self.last_error[:28])

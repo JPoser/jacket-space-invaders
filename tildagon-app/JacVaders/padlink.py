@@ -52,6 +52,10 @@ class EspNowPad:
         self._e = None
         self._polls = 0  # channel-watchdog cadence counter
         self.rx_count = 0  # frames received since start (debug/telemetry)
+        # While paused the poll() watchdog stands down: the high-score
+        # submitter borrows the radio for WiFi, and _pin_channel would
+        # otherwise drop the AP mid-POST.
+        self.paused = False
 
     @property
     def available(self):
@@ -111,11 +115,32 @@ class EspNowPad:
             # Audible-mismatch warning: the bridge won't be heard.
             self.status = "ch{}!={}".format(live, self.channel)
 
+    def pause(self):
+        """Lend the radio out (WiFi score submission): watchdog stands
+        down and stale frames are ignored until resume()."""
+        self.paused = True
+        self.status = "paused"
+
+    def resume(self):
+        """Take the radio back: re-pin the channel immediately rather
+        than waiting out the watchdog cadence."""
+        self.paused = False
+        if self._e is None:
+            return
+        try:
+            sta = network.WLAN(network.STA_IF)
+            if self.force_channel:
+                self._pin_channel(sta)
+            self._update_status(sta)
+        except Exception as e:
+            print("padlink resume failed: {}".format(e))
+            self.status = "err"
+
     def poll(self):
         """Drain everything pending. Cheap when idle (one any() check).
         Every ~50 polls (a couple of seconds at tick rate) the channel
         watchdog re-pins the radio in case the OS moved it."""
-        if self._e is None:
+        if self._e is None or self.paused:
             return
         self._polls += 1
         if self.force_channel and self._polls >= 50:

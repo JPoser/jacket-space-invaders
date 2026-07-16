@@ -90,6 +90,35 @@ PADLINK_CHANNEL = 1
 # Set False if some other app needs WiFi while JacVaders runs.
 PADLINK_FORCE_CHANNEL = True
 
+# --- High scores -----------------------------------------------------------------
+
+# The whole feature behind one flag: initials entry at game over, the
+# local top-10 on flash, and submission to jacket-server. Set False to
+# back the lot out (the game reverts to exactly its old behaviour).
+HIGHSCORE_ENABLED = True
+
+# Local table location on badge flash (None = memory only, e.g. simulator).
+HIGHSCORE_FILE = "/jacvaders_scores.json"
+
+# Server submission. The badge borrows the radio at game over (padlink
+# pauses, WiFi joins with the badge OS's saved credentials, one POST,
+# then ESP-NOW channel 1 is re-pinned). Failures queue and retry at the
+# next game over. Set HIGHSCORE_URL to None for local-only scores.
+HIGHSCORE_URL = "https://jacket.londonaero.space"
+HIGHSCORE_GAME = "jacvaders"
+HIGHSCORE_WIFI_TIMEOUT = 15.0  # seconds to wait for the AP before giving up
+HIGHSCORE_HTTP_TIMEOUT = 10.0  # socket timeout for the POST itself
+
+# The API key lives in secrets.py (gitignored) — copy secrets.example.py.
+HIGHSCORE_API_KEY = ""
+try:
+    from .secrets import HIGHSCORE_API_KEY  # noqa: F811
+except Exception:
+    try:
+        from secrets import HIGHSCORE_API_KEY  # noqa: F811
+    except Exception:
+        pass
+
 # --- Game tuning ----------------------------------------------------------------
 
 SHOT_SPEED = 12.0     # rows/second, upward

@@ -4,3 +4,4 @@ __pycache__/
 tildagon-app/build/
 .venv/
 .DS_Store
+tildagon-app/JacVaders/secrets.py
