@@ -29,7 +29,10 @@ COLUMN_LAYOUT = "UDUDUD"
 
 # --- Rendering ----------------------------------------------------------------
 
-FRAME_RATE = 10  # fps for strip repaints
+# 20fps: halves the paint-latency slice of input lag (a steer lands on
+# the next frame), and keeps the 2Hz cannon pulse smooth - at 10fps a
+# 2Hz triangle aliases into a 3-level strobe (JacMan's blinky-LED bug).
+FRAME_RATE = 20
 
 # Ceiling on the per-frame delta fed to the game, so a stalled scheduler
 # tick can't teleport bombs through the cannon.
