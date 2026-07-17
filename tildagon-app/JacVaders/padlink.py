@@ -98,6 +98,14 @@ class EspNowPad:
                 sta.disconnect()
         except Exception:
             pass
+        # Re-assert PM_NONE every time, not just at start(): any
+        # wifi.connect() (badge OS boot, high-score submission) re-arms
+        # the default modem power save, and a sleeping radio hears ESP-NOW
+        # only in bursts — on the LCD it looks like a dead gamepad.
+        try:
+            sta.config(pm=sta.PM_NONE)
+        except Exception:
+            pass
         try:
             sta.config(channel=self.channel)
         except (OSError, ValueError):
@@ -151,8 +159,10 @@ class EspNowPad:
                     print("padlink: ch={} connected={} status={} rx={}".format(
                         sta.config("channel"), sta.isconnected(),
                         sta.status(), self.rx_count))
-                if sta.isconnected() or sta.config("channel") != self.channel:
-                    self._pin_channel(sta)
+                # Unconditional: _pin_channel is idempotent and also
+                # re-asserts PM_NONE, which a correct-looking channel
+                # can silently have lost.
+                self._pin_channel(sta)
                 self._update_status(sta)
             except Exception as e:
                 if self.debug:

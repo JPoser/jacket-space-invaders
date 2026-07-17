@@ -83,6 +83,7 @@ GAMEPAD_DEBUG = False   # print every HID report — for mapping a new pad
 # firmware (its default is 1 — see the channel note in padlink.py).
 PADLINK_ENABLED = True
 PADLINK_CHANNEL = 1
+PADLINK_DEBUG = False  # print received frames + channel telemetry
 
 # Pin the radio to PADLINK_CHANNEL, dropping any AP the badge OS joined
 # (ESP-NOW is channel-locked; a badge sitting on the home AP's channel
@@ -100,11 +101,13 @@ HIGHSCORE_ENABLED = True
 # Local table location on badge flash (None = memory only, e.g. simulator).
 HIGHSCORE_FILE = "/jacvaders_scores.json"
 
-# Server submission. The badge borrows the radio at game over (padlink
-# pauses, WiFi joins with the badge OS's saved credentials, one POST,
-# then ESP-NOW channel 1 is re-pinned). Failures queue and retry at the
-# next game over. Set HIGHSCORE_URL to None for local-only scores.
-HIGHSCORE_URL = "https://jacket.londonaero.space"
+# Server submission from the badge is OFF (None): the WiFi/ESP-NOW
+# radio handover proved too fragile in the field — every borrow risks
+# deafening the gamepad. Scores queue in HIGHSCORE_FILE instead and
+# tools/upload_scores.py pushes them over USB from a laptop. Set a URL
+# to re-enable the live radio dance (it works, but camp is not the
+# place to trust it).
+HIGHSCORE_URL = None
 HIGHSCORE_GAME = "jacvaders"
 HIGHSCORE_WIFI_TIMEOUT = 15.0  # seconds to wait for the AP before giving up
 HIGHSCORE_HTTP_TIMEOUT = 10.0  # socket timeout for the POST itself

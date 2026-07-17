@@ -121,7 +121,8 @@ class JacVadersApp(app.App):
         if self.game is not None and config.PADLINK_ENABLED:
             self.padlink = padlink.EspNowPad(
                 self._on_ble_press, channel=config.PADLINK_CHANNEL,
-                force_channel=config.PADLINK_FORCE_CHANNEL)
+                force_channel=config.PADLINK_FORCE_CHANNEL,
+                debug=getattr(config, "PADLINK_DEBUG", False))
 
         # High scores (config.HIGHSCORE_ENABLED): local top-10 on flash,
         # initials entry at game over, best-effort submission to

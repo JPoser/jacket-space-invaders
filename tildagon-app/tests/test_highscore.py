@@ -305,14 +305,14 @@ def test_kick_noops_when_nothing_pending_or_busy():
     print("ok: kick() no-ops when idle-with-nothing or busy")
 
 
-def test_offline_submitter_stays_off():
+def test_offline_submitter_stays_local():
     t = highscore.ScoreTable()
     t.add("JOE", 100)
     sub = highscore.Submitter(t, "jacvaders", None, "", wifi=None)
-    assert sub.status == "off"
+    assert sub.status == "local"
     assert not sub.kick()
     assert len(t.pending) == 1
-    print("ok: no wifi module = local-only, scores keep queueing")
+    print("ok: no client = local-only, scores keep queueing for USB upload")
 
 
 def test_threaded_worker_happy_path():

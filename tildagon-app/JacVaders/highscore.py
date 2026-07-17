@@ -188,7 +188,14 @@ class Submitter:
         self.worker = worker          # PollWorker (or None = post inline)
         self.wifi_timeout = wifi_timeout
         self.state = "idle"
-        self.status = "off" if (wifi is None or client is None) else "idle"
+        # "local" = scores save to flash and wait for the USB upload
+        # tool; "off" = wifi missing entirely; "idle" = live submission.
+        if client is None:
+            self.status = "local"
+        elif wifi is None:
+            self.status = "off"
+        else:
+            self.status = "idle"
         self._timer = 0.0
         self.sent = 0  # entries delivered this power cycle (telemetry)
 

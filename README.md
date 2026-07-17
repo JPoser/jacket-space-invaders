@@ -57,20 +57,21 @@ brightness and only the shields recede.
   the gamepad bridge or a phone alike. Walk away and it auto-confirms
   after 20 seconds; the score is never lost.
 - Scores land in a **local top-10** on badge flash
-  (`/jacvaders_scores.json`), so the table works with no network.
-- If `HIGHSCORE_URL` is set, each entry is also submitted to
-  [jacket-server](../jacket-server)'s `POST /api/v1/scores` and appears
-  on the public leaderboard at `/scores`. The API key goes in
-  `secrets.py` (copy `secrets.example.py`; it's gitignored).
+  (`/jacvaders_scores.json`), so the table works with no network —
+  every human game also joins a `pending` queue in the same file.
+- **Getting them onto the public board is a USB job, not a radio
+  job**: back at a laptop, plug the badge in and run
+  `python3 tools/upload_scores.py` — it reads the queue over USB,
+  POSTs it to [jacket-server](../jacket-server) and clears it. The API
+  key comes from `--key`, `JACKET_API_KEY`, or `secrets.py` (copy
+  `secrets.example.py`; gitignored). `--dry-run` previews.
 
-The radio dance behind the submission: at game over — the one moment
-nobody needs the gamepad — `padlink` pauses its channel watchdog, the
-badge joins camp WiFi with the badge OS's saved credentials, the POST
-runs on a worker thread (`pollworker.py` + `httpclient.py`, both
-borrowed from jacket-client), then WiFi drops and ESP-NOW channel 1 is
-re-pinned. Any failure just leaves the score queued in the JSON file;
-it rides the next game over. The LCD's `hs` status shows the state
-(`idle` / `wifi..` / `send..` / `sent #N` / `no wifi` / `fail`).
+Why not submit from the badge? It can (`HIGHSCORE_URL` in `config.py`
+re-enables the WiFi radio dance, and it did work) — but every borrow
+of the radio risks deafening the ESP-NOW gamepad link, and in a field
+with no joinable WiFi it costs a dead controller at every game over.
+Local + USB sync is boring and unbreakable, which is what camp needs.
+The LCD's `hs local` status confirms scores are being kept.
 
 ## Playing with a real gamepad (the ESP-NOW bridge)
 
